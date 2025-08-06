@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { Search, RotateCcw, Plus, Edit, Trash2, X, AlertTriangle, Info, Download } from 'lucide-react';
 
 // --- 模擬資料 (Mock Data) ---
@@ -13,7 +13,7 @@ const initialRules = [
 
 const ACTIONS_LIST = ['禁止出款', '禁止存款', '禁止所有遊戲', '禁止領取優惠', '強制導入KYC頁面', '禁止登入', '禁止註冊'];
 
-// --- 新增：預設原因對照表 ---
+// --- 預設原因對照表 ---
 const PRESET_REASONS = {
   '禁止出款': ['高頻異常交易', '疑似洗錢行為', '帳戶司法凍結', '觸發風控審核'],
   '禁止存款': ['存款管道異常', '疑似盜刷'],
@@ -34,7 +34,6 @@ export default function App() {
     action: 'all',
     status: 'all',
   });
-  // --- 新增：套用篩選條件的狀態 ---
   const [appliedFilters, setAppliedFilters] = useState(filters);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -43,7 +42,12 @@ export default function App() {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [ruleToDelete, setRuleToDelete] = useState(null);
 
-  // --- 修改：過濾邏輯改為依賴 appliedFilters ---
+  // --- ✨ HYDRATION 修復：使用 useRef 來產生穩定的唯一 ID ---
+  // useRef 會在元件的整個生命週期中保持相同的值，不會因為重新渲染而改變。
+  // 我們從一個比現有資料最大ID還大的數字開始計數。
+  const nextId = useRef(Math.max(...initialRules.map(r => r.id)) + 1);
+
+
   const filteredRules = useMemo(() => {
     return rules.filter(rule => {
       const keywordMatch = !appliedFilters.keyword || rule.targetValue.toLowerCase().includes(appliedFilters.keyword.toLowerCase());
@@ -60,7 +64,6 @@ export default function App() {
     setFilters(prev => ({ ...prev, [name]: value }));
   };
 
-  // --- 新增：處理搜尋按鈕點擊 ---
   const handleSearch = () => {
     setAppliedFilters(filters);
   };
@@ -98,14 +101,19 @@ export default function App() {
       setRules(rules.map(r => r.id === editingRule.id ? updatedRule : r));
     } else {
       // 新增模式 (批次)
-      const newRules = targets.map(target => ({
-        id: Date.now() + Math.random(), 
-        ...ruleToSave,
-        targetValue: target.trim(),
-        status: 'enabled',
-        updatedAt: formattedDate, 
-        operator: 'admin_you'
-      }));
+      const newRules = targets.map(target => {
+        // --- ✨ HYDRATION 修復：使用 useRef 產生的 ID ---
+        const newId = nextId.current;
+        nextId.current++; // 將計數器加一，為下一個 ID 做準備
+        return {
+          id: newId, 
+          ...ruleToSave,
+          targetValue: target.trim(),
+          status: 'enabled',
+          updatedAt: formattedDate, 
+          operator: 'admin_you'
+        };
+      });
       setRules([...newRules, ...rules]);
     }
     handleCloseModal();
@@ -134,7 +142,6 @@ export default function App() {
     }
   };
   
-  // --- 新增：匯出 CSV 功能 ---
   const handleExport = () => {
     const headers = ['狀態', '目標類型', '目標值', '執行動作', '原因', '更新時間', '操作人'];
     const rows = filteredRules.map(rule => [
@@ -211,7 +218,6 @@ function Header() {
   );
 }
 
-// --- 新增：儀表板連動說明組件 ---
 function DashboardIntegrationInfo() {
     return (
         <div className="mb-6 bg-blue-50 border-l-4 border-blue-400 p-4 rounded-r-lg">
@@ -415,6 +421,8 @@ function RuleModal({ rule, onClose, onSave }) {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!formData.action || !formData.reason || !formData.targetValue) {
+      // 改用更友善的提示方式，而非瀏覽器原生的 alert
+      // 在此原型中我們暫時保留 alert，但在正式產品中應替換為 UI 元件
       alert('目標值、執行動作與原因為必填欄位。');
       return;
     }
